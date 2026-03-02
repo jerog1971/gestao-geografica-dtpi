@@ -50,7 +50,7 @@
 
     const markers = L.markerClusterGroup();
     map.addLayer(markers);
-    let bancoDadosLocal = []; // Aqui guardamos os 22 mil registros
+    let bancoDadosLocal = []; 
     let markerBusca;
 
     function getStyle(ano) {
@@ -58,13 +58,13 @@
         return { color: cor, weight: 5, opacity: 0.8, fillColor: cor, fillOpacity: 0.5, radius: 8 };
     }
 
-function wktToLayer(proj) {
+    // --- FUNÇÃO DE DESENHO (CONECTADA AO NOVO JSON) ---
+    function wktToLayer(proj) {
         if (!proj.coords || proj.coords.length === 0) return null;
 
         const estilo = getStyle(proj.ano);
         let layer;
 
-        // Agora proj.coords já é uma lista de [lat, lng]
         if (proj.tipo === 'Point' || proj.coords.length === 1) {
             layer = L.circleMarker(proj.coords[0], estilo);
         } else if (proj.tipo === 'LineString') {
@@ -78,6 +78,7 @@ function wktToLayer(proj) {
         }
         return layer;
     }
+
     // --- FILTRAR E EXIBIR ---
     function filtrarPorAno(ano) {
         const anoInt = parseInt(ano);
@@ -87,19 +88,19 @@ function wktToLayer(proj) {
         const filtrados = bancoDadosLocal.filter(p => p.ano === anoInt);
         
         filtrados.forEach(proj => {
-            const camada = wktToLayer(proj.tipo, proj.coordenadas, proj);
+            const camada = wktToLayer(proj); // Passando o objeto unificado
             if(camada) markers.addLayer(camada);
         });
 
         document.getElementById('count').innerText = `${filtrados.length} registros encontrados (${ano})`;
     }
 
-    // --- CARREGAMENTO INICIAL DO JSON ---
+    // --- CARREGAMENTO INICIAL ---
     fetch('dados_mapa.json')
         .then(res => res.json())
         .then(data => {
             bancoDadosLocal = data;
-            filtrarPorAno(2026); // Inicia exibindo 2026
+            filtrarPorAno(2026); 
         })
         .catch(err => {
             document.getElementById('count').innerText = "Erro ao carregar dados.";
