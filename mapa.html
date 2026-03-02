@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>DTPI - Sistema de Gestão Geográfica</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f4; }
+        #map { height: 100vh; width: 100%; }
+        
+        /* Painel de Controle Superior */
+        .control-panel { 
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 1000; background: white; padding: 10px 25px; 
+            border-radius: 50px; box-shadow: 0 4px 25px rgba(0,0,0,0.2);
+            display: flex; align-items: center; gap: 20px;
+            min-width: 600px;
+        }
+
+        .slider-group { display: flex; align-items: center; gap: 10px; }
+        
+        .search-group { 
+            display: flex; align-items: center; gap: 5px; 
+            border-left: 1px solid #ddd; padding-left: 20px; 
+        }
+
+        #buscaEndereco { 
+            padding: 8px 15px; border-radius: 20px; border: 1px solid #ccc; 
+            width: 220px; outline: none; 
+        }
+
+        #buscaEndereco:focus { border-color: #2ecc71; }
+
+        .btn-search {
+            background: #2ecc71; color: white; border: none; padding: 8px 15px;
+            border-radius: 20px; cursor: pointer; font-weight: bold;
+        }
+
+        .btn-search:hover { background: #27ae60; }
+
+        /* Contador Flutuante */
+        .counter { 
+            position: absolute; bottom: 30px; right: 20px; z-index: 1000; 
+            background: rgba(0,0,0,0.8); color: white; padding: 12px 20px; 
+            border-radius: 8px; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        input[type=range] { cursor: pointer; width: 150px; }
+    </style>
+</head>
+<body>
+
+<div class="control-panel">
+    <div class="slider-group">
+        <strong style="color: #2c3e50;">Ano: <span id="anoDisplay">2026</span></strong>
+        <input type="range" id="anoSlider" min="2011" max="2026" value="2026" step="1">
+    </div>
+    
+    <div class="search-group">
+        <input type="text" id="buscaEndereco" placeholder="Buscar rua em Curitiba...">
+        <button class="btn-search" onclick="buscarRua()">Ir para Rua</button>
+    </div>
+</div>
+
+<div id="count" class="counter">Iniciando sistema...</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+<script>
+    // --- 1. CONFIGURAÇÃO SUPABASE ---
+    const SB_URL = 'https://csowmeyelmeywrgmpqaw.supabase.co'; 
+    const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzb3dtZXllbG1leXdyZ21wcWF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyMjA5NzYsImV4cCI6MjA4Nzc5Njk3Nn0.fvSfKMWjFCTVSr131cv7r0vLrtGybQb3-pldsjadAL8';
+    const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
+
+    // --- 2. INICIALIZAÇÃO DO MAPA ---
+    const map = L.map('map').setView([-25.4297, -49.2719], 12);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: 'DTPI Curitiba | © OpenStreetMap'
+    }).addTo(map);
+
+    const markers = L.markerClusterGroup();
+    map.addLayer(markers);
+    let markerBusca; // Para marcar a rua encontrada
+
+    // --- 3. LÓGICA DE CORES ---
+    function getStyle(ano) {
+        // Recentes: Verde | Médios: Amarelo | Antigos: Cinza
+        const cor = ano >= 2021 ? '#2ecc71' : (ano >= 2016 ? '#f1c40f' : '#95a5a6');
+        return { color: cor, weight: 5, opacity: 0.8, fillColor: cor, fillOpacity: 0.5, radius: 8 };
+    }
+
+    // --- 4. FUNÇÃO PARA BUSCAR DADOS NO BANCO ---
+    async function carregarDadosBanco(ano) {
+        document.getElementById('anoDisplay').innerText = ano;
+        document.getElementById('count').innerText = "Consultando banco...";
+
+        // Usamos a função RPC get_projetos_por_ano que já está funcionando
+        const { data, error } = await supabaseClient.rpc('get_projetos_por_ano', { 
+            ano_param: parseInt(ano) 
+        });
+
+        if (error) {
+            console.error(error);
+            document.getElementById('count').innerText = "Erro na conexão.";
+            return;
+        }
+
+        markers.clearLayers();
+
+        const geoLayer = L.geoJSON(data, {
+            style: (f) => getStyle(f.properties.ano),
+            pointToLayer: (f, latlng) => L.circleMarker(latlng, getStyle(f.properties.ano)),
+            onEachFeature: (f, l) => {
+                l.bindPopup(`
+                    <div style="line-height:1.4">
+                        <strong style="font-size:14px">${f.properties.nome || 'Sem Nome'}</strong><br>
+                        <b>Ano:</b> ${f.properties.ano}<br>
+                        <b>Obs:</b> ${f.properties.descricao || 'Nenhuma'}
+                    </div>
+                `);
+            }
+        });
+
+        markers.addLayer(geoLayer);
+        document.getElementById('count').innerText = `${data.features.length} registros encontrados (${ano})`;
+    }
+
+    // --- 5. FUNÇÃO PARA BUSCAR ENDEREÇO (RUA) ---
+    async function buscarRua() {
+        const rua = document.getElementById('buscaEndereco').value;
+        if (!rua) return;
+
+        document.getElementById('count').innerText = "Localizando rua...";
+        const query = encodeURIComponent(rua + ", Curitiba, Paraná");
+        
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
+            const results = await res.json();
+
+            if (results.length > 0) {
+                const { lat, lon, display_name } = results[0];
+                
+                // Centraliza o mapa
+                map.setView([lat, lon], 16);
+
+                // Adiciona ou move marcador de busca
+                if (markerBusca) map.removeLayer(markerBusca);
+                markerBusca = L.marker([lat, lon]).addTo(map)
+                    .bindPopup(`<b>Local Encontrado:</b><br>${display_name}`)
+                    .openPopup();
+                
+                document.getElementById('count').innerText = "Rua localizada!";
+            } else {
+                alert("Rua não encontrada em Curitiba.");
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // --- 6. EVENTOS ---
+    document.getElementById('anoSlider').oninput = (e) => carregarDadosBanco(e.target.value);
+    
+    document.getElementById('buscaEndereco').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') buscarRua();
+    });
+
+    // Início automático
+    carregarDadosBanco(2026);
+</script>
+
+</body>
+</html>
