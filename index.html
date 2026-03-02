@@ -58,22 +58,42 @@
         return { color: cor, weight: 5, opacity: 0.8, fillColor: cor, fillOpacity: 0.5, radius: 8 };
     }
 
-    // --- FUNÇÃO PARA CONVERTER WKT EM CAMADA LEAFLET ---
+// --- VERSÃO CORRIGIDA (XEQUEMATE NA TEIA DE ARANHA) ---
     function wktToLayer(tipo, coordsWKT, properties) {
-        const coordsRaw = coordsWKT.split(/[\s,]+/);
+        const listaRaw = coordsWKT.trim().split(/[\s,]+/);
+        const pts = [];
+
+        // Detecta se os dados têm altitude (3 valores) ou não (2 valores)
+        const salto = (listaRaw.length % 3 === 0 && listaRaw.length > 0) ? 3 : 2;
+
+        for (let i = 0; i < listaRaw.length; i += salto) {
+            const lng = parseFloat(listaRaw[i]);
+            const lat = parseFloat(listaRaw[i + 1]);
+            
+            if (!isNaN(lat) && !isNaN(lng)) {
+                // Filtro de Segurança: Só aceita o que estiver na região de Curitiba
+                if (lat < -24.5 && lat > -26.5 && lng < -48.0 && lng > -50.5) {
+                    pts.push([lat, lng]);
+                }
+            }
+        }
+
+        if (pts.length === 0) return null;
+
+        const estilo = getStyle(properties.ano);
         let layer;
 
-        if (tipo === 'Point') {
-            layer = L.circleMarker([parseFloat(coordsRaw[1]), parseFloat(coordsRaw[0])], getStyle(properties.ano));
-        } else {
-            const pts = [];
-            for(let i=0; i < coordsRaw.length; i+=2) {
-                if(coordsRaw[i] && coordsRaw[i+1]) pts.push([parseFloat(coordsRaw[i+1]), parseFloat(coordsRaw[i])]);
-            }
-            layer = tipo === 'LineString' ? L.polyline(pts, getStyle(properties.ano)) : L.polygon(pts, getStyle(properties.ano));
+        if (tipo === 'Point' || pts.length === 1) {
+            layer = L.circleMarker(pts[0], estilo);
+        } else if (tipo === 'LineString') {
+            layer = L.polyline(pts, estilo);
+        } else if (tipo === 'Polygon') {
+            // Garante que o polígono não tampe tudo com cor sólida
+            const estiloPoligono = {...estilo, fillOpacity: 0.3};
+            layer = L.polygon(pts, estiloPoligono);
         }
-        
-        if(layer) {
+
+        if (layer) {
             layer.bindPopup(`<strong>${properties.nome}</strong><br>Ano: ${properties.ano}<br>Obs: ${properties.descricao}`);
         }
         return layer;
