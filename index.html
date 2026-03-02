@@ -77,10 +77,10 @@
     const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzb3dtZXllbG1leXdyZ21wcWF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyMjA5NzYsImV4cCI6MjA4Nzc5Njk3Nn0.fvSfKMWjFCTVSr131cv7r0vLrtGybQb3-pldsjadAL8';
     const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
 
-    // --- 2. INICIALIZAÇÃO DO MAPA ---
+// --- 2. INICIALIZAÇÃO DO MAPA ---
     const map = L.map('map').setView([-25.4297, -49.2719], 12);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: 'DTPI Curitiba | © OpenStreetMap'
+        attribution: '© OpenStreetMap | **Desenvolvido por Jefferson Roger © 2026**'
     }).addTo(map);
 
     const markers = L.markerClusterGroup();
