@@ -67,13 +67,12 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
 <script>
-    // 1. Configurações Iniciais
+    // 1. Configurações Iniciais do Mapa
     const map = L.map('map').setView([-25.4297, -49.2719], 12);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: 'Desenvolvido por Jefferson Roger © 2026'
     }).addTo(map);
 
-    // MarkerCluster otimizado para grande volume de dados
     const markers = L.markerClusterGroup({
         chunkedLoading: true,
         removeOutsideVisibleBounds: true,
@@ -103,20 +102,19 @@
                 } else if (p.tipo === 'Polygon') {
                     camada = L.polygon(p.coords, estilo);
                 } else {
-                    // Ponto: assume que coords[0] é [lat, lng]
                     camada = L.circleMarker(p.coords[0], { radius: 8, ...estilo });
                 }
                 
                 camada.bindPopup(`<b>${p.nome}</b><br>${p.descricao || 'Sem descrição'}`);
                 listaLayers.push(camada);
-            } catch (e) { console.error("Erro ao renderizar item:", p.nome); }
+            } catch (e) { console.error("Erro no item:", p.nome); }
         });
         
         markers.addLayers(listaLayers);
         document.getElementById('count').innerText = `${filtrados.length} registros em ${ano}`;
     }
 
-    // 3. Busca por Rua (Geocodificação + Filtro Local)
+    // 3. Busca por Rua
     async function buscarRua() {
         const ruaInput = document.getElementById('buscaEndereco').value.trim();
         if (!ruaInput) return;
@@ -135,7 +133,6 @@
                 if (markerBusca) map.removeLayer(markerBusca);
                 markerBusca = L.marker([principal.lat, principal.lon]).addTo(map).bindPopup(`<b>${ruaInput}</b>`).openPopup();
 
-                // Filtro Espacial Simples (Bounding Box expandida)
                 const MARGEM = 0.0006; 
                 const boundsExpandido = L.latLngBounds(
                     [parseFloat(bbox[0]) - MARGEM, parseFloat(bbox[2]) - MARGEM],
@@ -158,11 +155,48 @@
         lista.innerHTML = `<span class="titulo-rua-label">${nomeRua}</span>`;
 
         if (projetos.length === 0) {
-            lista.innerHTML += `<p style="font-size:12px; padding:10px;">Nenhum registro histórico encontrado nesta rua.</p>`;
+            lista.innerHTML += `<p style="font-size:12px; padding:10px;">Nenhum registro encontrado.</p>`;
         } else {
-            // Remove duplicatas por nome e ordena por ano decrescente
             const unicos = Array.from(new Map(projetos.map(item => [item.nome, item])).values())
                                .sort((a, b) => b.ano - a.ano);
 
             unicos.forEach(p => {
                 const card = document.createElement('div');
+                card.className = 'card-projeto';
+                card.innerHTML = `<span class="tag-ano-mini">${p.ano}</span><strong>${p.nome}</strong>`;
+                card.onclick = () => {
+                    document.getElementById('anoSlider').value = p.ano;
+                    filtrarPorAno(p.ano);
+                    map.setView(p.coords[0], 19);
+                };
+                lista.appendChild(card);
+            });
+        }
+    }
+
+    // 4. Carregamento dos Dados (O Coração do Sistema)
+    console.log("Iniciando fetch do banco local...");
+    
+    fetch('./dados_mapa.json?v=' + Date.now())
+        .then(res => {
+            if (!res.ok) throw new Error("Erro HTTP: " + res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Sucesso! Itens carregados:", data.length);
+            bancoDadosLocal = data;
+            document.getElementById('count').innerText = `Total: ${data.length} registros`;
+            filtrarPorAno(2026);
+        })
+        .catch(err => {
+            console.error("Falha no carregamento:", err);
+            document.getElementById('count').innerText = "Erro ao carregar banco de dados.";
+        });
+
+    // 5. Eventos
+    document.getElementById('buscaEndereco').addEventListener('keypress', (e) => { if (e.key === 'Enter') buscarRua(); });
+    document.getElementById('anoSlider').oninput = (e) => filtrarPorAno(e.target.value);
+
+</script>
+</body>
+</html>
