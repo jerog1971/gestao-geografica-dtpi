@@ -8,19 +8,39 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
     <style>
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f4; }
-        #map { height: 100vh; width: 100%; z-index: 1; }
+        #map { height: 100vh; width: 100%; z-index: 1; filter: blur(10px); pointer-events: none; transition: filter 0.5s ease; }
         
+        /* --- ESTILO DO LOGIN --- */
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(44, 62, 80, 0.95);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 9999;
+        }
+        .login-box {
+            background: white; padding: 40px; border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 350px; text-align: center;
+        }
+        .login-box h2 { color: #2c3e50; margin-bottom: 25px; }
+        .login-box input {
+            width: 100%; padding: 12px; margin-bottom: 15px;
+            border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box;
+        }
+        .login-box button {
+            width: 100%; padding: 12px; background: #3498db; color: white;
+            border: none; border-radius: 8px; cursor: pointer; font-weight: bold;
+        }
+        #error-msg { color: #e74c3c; font-size: 13px; margin-top: 10px; display: none; }
+
+        /* --- PAINÉIS DO SISTEMA --- */
         .control-panel { 
             position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
             z-index: 1000; background: white; padding: 10px 25px; 
             border-radius: 50px; box-shadow: 0 4px 25px rgba(0,0,0,0.2);
             display: flex; align-items: center; gap: 20px;
         }
-
         #buscaEndereco { padding: 8px 15px; border-radius: 20px; border: 1px solid #ccc; width: 250px; outline: none; }
         .btn-search { background: #2ecc71; color: white; border: none; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
-        .btn-search:hover { background: #27ae60; }
-
         .counter { position: absolute; bottom: 30px; right: 20px; z-index: 1000; background: rgba(0,0,0,0.8); color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; }
         
         .relatorio-painel {
@@ -31,32 +51,35 @@
         }
         .relatorio-header { background: #2c3e50; color: white; padding: 12px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center; }
         .relatorio-corpo { padding: 10px; overflow-y: auto; background: #fff; border-radius: 0 0 12px 12px; }
-        
-        .card-projeto { border-left: 4px solid #3498db; background: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 4px; font-size: 13px; cursor: pointer; transition: 0.2s; }
-        .card-projeto:hover { background: #eef2f7; transform: translateX(5px); }
-        .tag-ano-mini { background: #34495e; color: white; padding: 2px 6px; border-radius: 3px; float: right; font-weight: bold; }
+        .card-projeto { border-left: 4px solid #3498db; background: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 4px; font-size: 13px; cursor: pointer; }
         .titulo-rua-label { font-size: 14px; font-weight: bold; color: #2c3e50; display: block; margin-bottom: 5px; border-bottom: 2px solid #3498db; }
     </style>
 </head>
 <body>
 
-<div class="control-panel">
-    <div style="display: flex; align-items: center; gap: 10px;">
-        <strong>Ano: <span id="anoDisplay">2026</span></strong>
-        <input type="range" id="anoSlider" min="2011" max="2026" value="2026" step="1">
-    </div>
-    <div style="border-left: 1px solid #ddd; padding-left: 20px; display: flex; gap: 5px;">
-        <input type="text" id="buscaEndereco" placeholder="Digite o nome da rua">
-        <button class="btn-search" onclick="buscarRua()">Consultar Rua</button>
+<div id="login-overlay">
+    <div class="login-box">
+        <h2>DTPI Access</h2>
+        <input type="text" id="user" placeholder="Usuário">
+        <input type="password" id="pass" placeholder="Senha">
+        <button onclick="fazerLogin()">Entrar no Sistema</button>
+        <div id="error-msg">Credenciais inválidas.</div>
     </div>
 </div>
 
-<div id="count" class="counter">Carregando dados...</div>
+<div class="control-panel">
+    <strong>Ano: <span id="anoDisplay">2026</span></strong>
+    <input type="range" id="anoSlider" min="2011" max="2026" value="2026" step="1">
+    <input type="text" id="buscaEndereco" placeholder="Digite o nome da rua">
+    <button class="btn-search" onclick="buscarRua()">Consultar Rua</button>
+</div>
+
+<div id="count" class="counter">Aguardando Login...</div>
 
 <div id="painelRelatorio" class="relatorio-painel">
     <div class="relatorio-header">
         <strong>Histórico Geográfico</strong>
-        <span style="cursor:pointer; font-size: 20px;" onclick="document.getElementById('painelRelatorio').style.display='none'">×</span>
+        <span style="cursor:pointer;" onclick="document.getElementById('painelRelatorio').style.display='none'">×</span>
     </div>
     <div id="listaProjetos" class="relatorio-corpo"></div>
 </div>
@@ -67,24 +90,46 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
 <script>
-    // 1. Configurações Iniciais do Mapa
     const map = L.map('map').setView([-25.4297, -49.2719], 12);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: 'Desenvolvido por Jefferson Roger © 2026'
-    }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-    const markers = L.markerClusterGroup({
-        chunkedLoading: true,
-        removeOutsideVisibleBounds: true,
-        disableClusteringAtZoom: 18
-    });
+    const markers = L.markerClusterGroup({ disableClusteringAtZoom: 18 });
     map.addLayer(markers);
 
     let bancoDadosLocal = [];
     let markerBusca;
 
-    // 2. Filtro por Ano
-    function filtrarPorAno(ano) {
+    // --- LÓGICA DE ACESSO ---
+    function fazerLogin() {
+        const u = document.getElementById('user').value;
+        const p = document.getElementById('pass').value;
+        if(u === "admin" && p === "dtpi2026") {
+            sessionStorage.setItem('logado', 'true');
+            iniciarSistema();
+        } else {
+            document.getElementById('error-msg').style.display = 'block';
+        }
+    }
+
+    function iniciarSistema() {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('map').style.filter = 'none';
+        document.getElementById('map').style.pointerEvents = 'auto';
+        carregarDados();
+    }
+
+    function carregarDados() {
+        fetch('./dados_mapa.json?nocache=' + Date.now())
+            .then(res => res.json())
+            .then(data => {
+                bancoDadosLocal = data;
+                filtrarPorAno(2026);
+            })
+            .catch(err => console.error("Erro ao carregar JSON:", err));
+    }
+
+    // --- FUNÇÕES DO MAPA ---
+function filtrarPorAno(ano) {
         const anoInt = parseInt(ano);
         document.getElementById('anoDisplay').innerText = ano;
         markers.clearLayers();
@@ -94,109 +139,36 @@
         
         filtrados.forEach(p => {
             let camada;
+            // Estilo padrão para os desenhos
             const estilo = { color: '#2ecc71', weight: 5, opacity: 0.8, fillOpacity: 0.4 };
             
             try {
-                if (p.tipo === 'LineString') {
-                    camada = L.polyline(p.coords, estilo);
+                // Lógica para diferenciar Linhas de Pontos (Círculos)
+                // Se o tipo for Point ou se tiver apenas 1 par de coordenadas
+                if (p.tipo === 'Point' || (p.coords && p.coords.length === 1)) {
+                    camada = L.circleMarker(p.coords[0], { radius: 8, ...estilo });
                 } else if (p.tipo === 'Polygon') {
                     camada = L.polygon(p.coords, estilo);
                 } else {
-                    camada = L.circleMarker(p.coords[0], { radius: 8, ...estilo });
+                    // Padrão para LineString (Projetos de mais de uma quadra)
+                    camada = L.polyline(p.coords, estilo);
                 }
                 
                 camada.bindPopup(`<b>${p.nome}</b><br>${p.descricao || 'Sem descrição'}`);
                 listaLayers.push(camada);
-            } catch (e) { console.error("Erro no item:", p.nome); }
+            } catch (e) { 
+                console.error("Erro ao renderizar item:", p.nome, e); 
+            }
         });
         
         markers.addLayers(listaLayers);
         document.getElementById('count').innerText = `${filtrados.length} registros em ${ano}`;
     }
-
-    // 3. Busca por Rua
-    async function buscarRua() {
-        const ruaInput = document.getElementById('buscaEndereco').value.trim();
-        if (!ruaInput) return;
-
-        try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(ruaInput + ", Curitiba")}`);
-            const data = await res.json();
-            
-            if (data.length > 0) {
-                const principal = data[0];
-                const bbox = principal.boundingbox; 
-                const boundsRua = L.latLngBounds([bbox[0], bbox[2]], [bbox[1], bbox[3]]);
-
-                map.fitBounds(boundsRua, { padding: [50, 50] });
-
-                if (markerBusca) map.removeLayer(markerBusca);
-                markerBusca = L.marker([principal.lat, principal.lon]).addTo(map).bindPopup(`<b>${ruaInput}</b>`).openPopup();
-
-                const MARGEM = 0.0006; 
-                const boundsExpandido = L.latLngBounds(
-                    [parseFloat(bbox[0]) - MARGEM, parseFloat(bbox[2]) - MARGEM],
-                    [parseFloat(bbox[1]) + MARGEM, parseFloat(bbox[3]) + MARGEM]
-                );
-
-                const projetosNaRua = bancoDadosLocal.filter(p => {
-                    const latLng = L.latLng(p.coords[0][0], p.coords[0][1]);
-                    return boundsExpandido.contains(latLng);
-                });
-
-                exibirRelatorio(projetosNaRua, ruaInput);
-            } else { alert("Rua não encontrada."); }
-        } catch (e) { console.error(e); }
-    }
-
-    function exibirRelatorio(projetos, nomeRua) {
-        const lista = document.getElementById('listaProjetos');
-        document.getElementById('painelRelatorio').style.display = 'flex';
-        lista.innerHTML = `<span class="titulo-rua-label">${nomeRua}</span>`;
-
-        if (projetos.length === 0) {
-            lista.innerHTML += `<p style="font-size:12px; padding:10px;">Nenhum registro encontrado.</p>`;
-        } else {
-            const unicos = Array.from(new Map(projetos.map(item => [item.nome, item])).values())
-                               .sort((a, b) => b.ano - a.ano);
-
-            unicos.forEach(p => {
-                const card = document.createElement('div');
-                card.className = 'card-projeto';
-                card.innerHTML = `<span class="tag-ano-mini">${p.ano}</span><strong>${p.nome}</strong>`;
-                card.onclick = () => {
-                    document.getElementById('anoSlider').value = p.ano;
-                    filtrarPorAno(p.ano);
-                    map.setView(p.coords[0], 19);
-                };
-                lista.appendChild(card);
-            });
-        }
-    }
-
-    // 4. Carregamento dos Dados (O Coração do Sistema)
-    console.log("Iniciando fetch do banco local...");
-    
-    fetch('./dados_mapa.json?v=' + Date.now())
-        .then(res => {
-            if (!res.ok) throw new Error("Erro HTTP: " + res.status);
-            return res.json();
-        })
-        .then(data => {
-            console.log("Sucesso! Itens carregados:", data.length);
-            bancoDadosLocal = data;
-            document.getElementById('count').innerText = `Total: ${data.length} registros`;
-            filtrarPorAno(2026);
-        })
-        .catch(err => {
-            console.error("Falha no carregamento:", err);
-            document.getElementById('count').innerText = "Erro ao carregar banco de dados.";
-        });
-
-    // 5. Eventos
-    document.getElementById('buscaEndereco').addEventListener('keypress', (e) => { if (e.key === 'Enter') buscarRua(); });
+    // --- EVENTOS ---
     document.getElementById('anoSlider').oninput = (e) => filtrarPorAno(e.target.value);
+    document.getElementById('buscaEndereco').onkeypress = (e) => { if(e.key === 'Enter') buscarRua(); };
 
+    if(sessionStorage.getItem('logado') === 'true') iniciarSistema();
 </script>
 </body>
 </html>
