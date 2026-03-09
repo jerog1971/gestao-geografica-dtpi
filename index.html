@@ -51,7 +51,7 @@
     </div>
 </div>
 
-<div id="count" class="counter">Sincronizando 20.000+ registros...</div>
+<div id="count" class="counter">Carregando dados...</div>
 
 <div id="painelRelatorio" class="relatorio-painel">
     <div class="relatorio-header">
@@ -67,138 +67,102 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
 <script>
-    // 1. Inicialização do Mapa
+    // 1. Configurações Iniciais
     const map = L.map('map').setView([-25.4297, -49.2719], 12);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: 'Desenvolvido por Jefferson Roger © 2026'
+        attribution: 'DTPI | Jefferson Roger © 2026'
     }).addTo(map);
 
-    const markers = L.markerClusterGroup();
+    // MarkerCluster otimizado para grande volume de dados
+    const markers = L.markerClusterGroup({
+        chunkedLoading: true,
+        removeOutsideVisibleBounds: true,
+        disableClusteringAtZoom: 18
+    });
     map.addLayer(markers);
+
     let bancoDadosLocal = [];
     let markerBusca;
 
-    // 2. Função de Cálculo de Distância (Haversine)
-    function calcularDistancia(lat1, lon1, lat2, lon2) {
-        const R = 6371000; 
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLon/2) * Math.sin(dLon/2);
-        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-    }
-
-    // 3. Filtro por Ano (Slider)
+    // 2. Filtro por Ano
     function filtrarPorAno(ano) {
         const anoInt = parseInt(ano);
         document.getElementById('anoDisplay').innerText = ano;
         markers.clearLayers();
         
         const filtrados = bancoDadosLocal.filter(p => p.ano === anoInt);
+        const listaLayers = [];
         
         filtrados.forEach(p => {
             let camada;
-            const estilo = { color: '#2ecc71', weight: 5, opacity: 0.8 };
+            const estilo = { color: '#2ecc71', weight: 5, opacity: 0.8, fillOpacity: 0.4 };
             
-            if (p.tipo === 'LineString') camada = L.polyline(p.coords, estilo);
-            else if (p.tipo === 'Polygon') camada = L.polygon(p.coords, estilo);
-            else camada = L.circleMarker(p.coords[0], { radius: 8, ...estilo });
-            
-            camada.bindPopup(`<b>${p.nome}</b><br>${p.descricao || 'Sem descrição'}`);
-            markers.addLayer(camada);
+            try {
+                if (p.tipo === 'LineString') {
+                    camada = L.polyline(p.coords, estilo);
+                } else if (p.tipo === 'Polygon') {
+                    camada = L.polygon(p.coords, estilo);
+                } else {
+                    // Ponto: assume que coords[0] é [lat, lng]
+                    camada = L.circleMarker(p.coords[0], { radius: 8, ...estilo });
+                }
+                
+                camada.bindPopup(`<b>${p.nome}</b><br>${p.descricao || 'Sem descrição'}`);
+                listaLayers.push(camada);
+            } catch (e) { console.error("Erro ao renderizar item:", p.nome); }
         });
         
-        document.getElementById('count').innerText = `${filtrados.length} projetos em ${ano}`;
+        markers.addLayers(listaLayers);
+        document.getElementById('count').innerText = `${filtrados.length} registros em ${ano}`;
     }
 
-    // 4. Busca por Rua e Arredores (Lógica Rápida)
-async function buscarRua() {
-    const ruaInput = document.getElementById('buscaEndereco').value.trim();
-    if (!ruaInput) return;
+    // 3. Busca por Rua (Geocodificação + Filtro Local)
+    async function buscarRua() {
+        const ruaInput = document.getElementById('buscaEndereco').value.trim();
+        if (!ruaInput) return;
 
-    try {
-        // 1. Buscamos a rua e pedimos o Bounding Box (Extensão da rua)
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(ruaInput + ", Curitiba")}`);
-        const data = await res.json();
-        
-        if (data.length > 0) {
-            const principal = data[0];
-            const bbox = principal.boundingbox; // [latMin, latMax, lonMin, lonMax]
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(ruaInput + ", Curitiba")}`);
+            const data = await res.json();
             
-            // Criamos os limites geográficos da rua inteira
-            const southWest = L.latLng(bbox[0], bbox[2]);
-            const northEast = L.latLng(bbox[1], bbox[3]);
-            const boundsRua = L.latLngBounds(southWest, northEast);
+            if (data.length > 0) {
+                const principal = data[0];
+                const bbox = principal.boundingbox; 
+                const boundsRua = L.latLngBounds([bbox[0], bbox[2]], [bbox[1], bbox[3]]);
 
-            // Ajusta o mapa para mostrar a rua INTEIRA
-            map.fitBounds(boundsRua, { padding: [50, 50] });
+                map.fitBounds(boundsRua, { padding: [50, 50] });
 
-            if (markerBusca) map.removeLayer(markerBusca);
-            markerBusca = L.marker([principal.lat, principal.lon]).addTo(map).bindPopup(`<b>${ruaInput}</b>`).openPopup();
+                if (markerBusca) map.removeLayer(markerBusca);
+                markerBusca = L.marker([principal.lat, principal.lon]).addTo(map).bindPopup(`<b>${ruaInput}</b>`).openPopup();
 
-            // 2. FILTRO POR BOUNDING BOX + TOLERÂNCIA (O segredo da precisão)
-            const MARGEM = 0.0005; // Pequena margem de segurança (aprox 50m) para não perder pontos na calçada
-            const boundsExpandido = L.latLngBounds(
-                [parseFloat(bbox[0]) - MARGEM, parseFloat(bbox[2]) - MARGEM],
-                [parseFloat(bbox[1]) + MARGEM, parseFloat(bbox[3]) + MARGEM]
-            );
+                // Filtro Espacial Simples (Bounding Box expandida)
+                const MARGEM = 0.0006; 
+                const boundsExpandido = L.latLngBounds(
+                    [parseFloat(bbox[0]) - MARGEM, parseFloat(bbox[2]) - MARGEM],
+                    [parseFloat(bbox[1]) + MARGEM, parseFloat(bbox[3]) + MARGEM]
+                );
 
-            // Filtra os 20k registros localmente
-            const projetosNaRua = bancoDadosLocal.filter(p => {
-                const ponto = L.latLng(p.coords[0][0], p.coords[0][1]);
-                return boundsExpandido.contains(ponto);
-            });
-
-            // 3. Renderiza o Relatório
-            const lista = document.getElementById('listaProjetos');
-            document.getElementById('painelRelatorio').style.display = 'flex';
-            lista.innerHTML = `<span class="titulo-rua-label">${ruaInput} e arredores</span>`;
-
-            if (projetosNaRua.length === 0) {
-                lista.innerHTML += `<p style="font-size:12px; padding:10px;">Nenhum registro histórico na extensão desta rua.</p>`;
-            } else {
-                // Remove duplicados e ordena por ano
-                const unicos = Array.from(new Set(projetosNaRua.map(p => p.nome)))
-                    .map(nome => projetosNaRua.find(p => p.nome === nome))
-                    .sort((a, b) => b.ano - a.ano);
-
-                unicos.forEach(p => {
-                    const card = document.createElement('div');
-                    card.className = 'card-projeto';
-                    card.innerHTML = `<span class="tag-ano-mini">${p.ano}</span><strong>${p.nome}</strong>`;
-                    card.onclick = () => {
-                        document.getElementById('anoSlider').value = p.ano;
-                        filtrarPorAno(p.ano);
-                        map.setView(p.coords[0], 19);
-                    };
-                    lista.appendChild(card);
+                const projetosNaRua = bancoDadosLocal.filter(p => {
+                    const latLng = L.latLng(p.coords[0][0], p.coords[0][1]);
+                    return boundsExpandido.contains(latLng);
                 });
-            }
-        } else { alert("Rua não encontrada."); }
-    } catch (e) { console.error(e); }
-}
 
-    // 5. Carga de Dados
-    fetch('dados_mapa.json?v=' + Date.now())
-        .then(res => res.json())
-        .then(data => {
-            bancoDadosLocal = data;
-            filtrarPorAno(2026);
-        })
-        .catch(err => {
-            document.getElementById('count').innerText = "Erro ao carregar banco de dados.";
-        });
+                exibirRelatorio(projetosNaRua, ruaInput);
+            } else { alert("Rua não encontrada."); }
+        } catch (e) { console.error(e); }
+    }
 
-    // Suporte ao Enter na busca
-    document.getElementById('buscaEndereco').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') buscarRua();
-    });
+    function exibirRelatorio(projetos, nomeRua) {
+        const lista = document.getElementById('listaProjetos');
+        document.getElementById('painelRelatorio').style.display = 'flex';
+        lista.innerHTML = `<span class="titulo-rua-label">${nomeRua}</span>`;
 
-    // Listener do Slider
-    document.getElementById('anoSlider').oninput = (e) => filtrarPorAno(e.target.value);
+        if (projetos.length === 0) {
+            lista.innerHTML += `<p style="font-size:12px; padding:10px;">Nenhum registro histórico encontrado nesta rua.</p>`;
+        } else {
+            // Remove duplicatas por nome e ordena por ano decrescente
+            const unicos = Array.from(new Map(projetos.map(item => [item.nome, item])).values())
+                               .sort((a, b) => b.ano - a.ano);
 
-</script>
-</body>
-
-</html>
+            unicos.forEach(p => {
+                const card = document.createElement('div');
